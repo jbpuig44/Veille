@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veille - Agrégateur de News IA</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <h1>Veille</h1>
+            <span class="subtitle">Agrégateur intelligent</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-page="home">Accueil</a>
+            <a href="#" class="nav-link" data-page="themes">Thèmes</a>
+            <a href="#" class="nav-link" data-page="favorites">Favoris</a>
+            <a href="#" class="nav-link" data-page="discover">Découverte</a>
+            <a href="#" class="nav-link" data-page="settings">Paramètres</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Page Accueil -->
+        <section id="page-home" class="page active">
+            <header class="page-header">
+                <h2>Articles récents</h2>
+                <div class="header-actions">
+                    <select id="filter-theme" class="select-theme">
+                        <option value="">Tous les thèmes</option>
+                    </select>
+                    <select id="sort-by" class="select-sort">
+                        <option value="relevance">Par pertinence</option>
+                        <option value="date">Par date</option>
+                    </select>
+                </div>
+            </header>
+            <div id="articles-container" class="articles-grid">
+                <!-- Articles chargés dynamiquement -->
+            </div>
+        </section>
+
+        <!-- Page Thèmes -->
+        <section id="page-themes" class="page">
+            <header class="page-header">
+                <h2>Thèmes de veille</h2>
+            </header>
+            <div id="themes-container" class="themes-grid">
+                <!-- Thèmes chargés dynamiquement -->
+            </div>
+        </section>
+
+        <!-- Page Favoris -->
+        <section id="page-favorites" class="page">
+            <header class="page-header">
+                <h2>Articles favoris</h2>
+            </header>
+            <div id="favorites-container" class="articles-grid">
+                <!-- Favoris chargés dynamiquement -->
+            </div>
+        </section>
+
+        <!-- Page Découverte -->
+        <section id="page-discover" class="page">
+            <header class="page-header">
+                <h2>Sources suggérées</h2>
+                <p class="page-description">Sources trouvées par l'IA, en attente de validation</p>
+            </header>
+            <div id="suggestions-container" class="suggestions-list">
+                <!-- Suggestions chargées dynamiquement -->
+            </div>
+        </section>
+
+        <!-- Page Paramètres -->
+        <section id="page-settings" class="page">
+            <header class="page-header">
+                <h2>Paramètres</h2>
+            </header>
+            <div class="settings-content">
+                <div class="settings-section">
+                    <h3>Export des préférences</h3>
+                    <p>Exportez vos notes et favoris pour les synchroniser avec l'outil CLI.</p>
+                    <button id="btn-export" class="btn btn-primary">Exporter (JSON)</button>
+                </div>
+                <div class="settings-section">
+                    <h3>Statistiques</h3>
+                    <div id="stats-container">
+                        <!-- Stats chargées dynamiquement -->
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Données locales</h3>
+                    <button id="btn-clear-local" class="btn btn-danger">Effacer les données locales</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal Article -->
+    <div id="article-modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close">&times;</button>
+            <div id="modal-body">
+                <!-- Contenu de l'article -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container"></div>
+
+    <footer class="footer">
+        <p>Dernière mise à jour : <span id="last-update">-</span></p>
+    </footer>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
