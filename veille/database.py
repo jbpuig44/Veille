@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Generator
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from .models import (
     Article,
@@ -227,6 +227,7 @@ def get_articles_by_source(source_id: int, limit: int = 50) -> list[Article]:
     with get_session() as session:
         return (
             session.query(Article)
+            .options(joinedload(Article.source).joinedload(Source.theme))
             .filter(Article.source_id == source_id)
             .order_by(Article.published_at.desc())
             .limit(limit)
@@ -239,6 +240,7 @@ def get_articles_by_theme(theme_id: int, limit: int = 100) -> list[Article]:
     with get_session() as session:
         return (
             session.query(Article)
+            .options(joinedload(Article.source).joinedload(Source.theme))
             .join(Source)
             .filter(Source.theme_id == theme_id)
             .filter(Article.is_hidden == False)  # noqa: E712
@@ -253,6 +255,7 @@ def get_unanalyzed_articles(limit: int = 50) -> list[Article]:
     with get_session() as session:
         return (
             session.query(Article)
+            .options(joinedload(Article.source).joinedload(Source.theme))
             .filter(Article.analyzed_at == None)  # noqa: E711
             .order_by(Article.fetched_at.desc())
             .limit(limit)
@@ -268,6 +271,7 @@ def get_recent_articles(days: int = 7, limit: int = 100) -> list[Article]:
         cutoff = datetime.utcnow() - timedelta(days=days)
         return (
             session.query(Article)
+            .options(joinedload(Article.source).joinedload(Source.theme))
             .filter(Article.fetched_at >= cutoff)
             .filter(Article.is_hidden == False)  # noqa: E712
             .order_by(Article.relevance_score.desc().nullslast(), Article.published_at.desc())
@@ -281,6 +285,7 @@ def get_favorite_articles() -> list[Article]:
     with get_session() as session:
         return (
             session.query(Article)
+            .options(joinedload(Article.source).joinedload(Source.theme))
             .filter(Article.is_favorite == True)  # noqa: E712
             .order_by(Article.published_at.desc())
             .all()
