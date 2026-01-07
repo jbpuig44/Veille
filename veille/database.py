@@ -19,7 +19,7 @@ from .models import (
 
 
 # Session factory
-SessionLocal = sessionmaker(bind=get_engine())
+SessionLocal = sessionmaker(bind=get_engine(), expire_on_commit=False)
 
 
 @contextmanager
