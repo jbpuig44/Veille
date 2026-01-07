@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "name": "ActuIA",
+    "url": "https://www.actuia.com",
+    "feed_url": "https://www.actuia.com/feed/",
+    "quality_score": 0.5,
+    "quality_display": "50%",
+    "is_active": true,
+    "last_fetched": "07/01/2026 13:23"
+  },
+  {
+    "id": 3,
+    "name": "Hugging Face Blog",
+    "url": "https://huggingface.co/blog",
+    "feed_url": "https://huggingface.co/blog/feed.xml",
+    "quality_score": 0.5,
+    "quality_display": "50%",
+    "is_active": true,
+    "last_fetched": "07/01/2026 13:23"
+  },
+  {
+    "id": 2,
+    "name": "The Gradient",
+    "url": "https://thegradient.pub",
+    "feed_url": "https://thegradient.pub/rss/",
+    "quality_score": 0.5,
+    "quality_display": "50%",
+    "is_active": true,
+    "last_fetched": "07/01/2026 13:23"
+  }
+]

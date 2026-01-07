@@ -1,1 +1,25 @@
-[]
+[
+  {
+    "id": 2,
+    "name": "Impression 3D",
+    "description": "",
+    "keywords": [
+      "3D printing",
+      "FDM",
+      "SLA",
+      "filament"
+    ]
+  },
+  {
+    "id": 1,
+    "name": "LLM IA",
+    "description": "",
+    "keywords": [
+      "GPT",
+      "Claude",
+      "LLM",
+      "transformer",
+      "AI"
+    ]
+  }
+]

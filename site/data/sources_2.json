@@ -1,0 +1,22 @@
+[
+  {
+    "id": 4,
+    "name": "3D Natives",
+    "url": "https://www.3dnatives.com",
+    "feed_url": "https://www.3dnatives.com/feed/",
+    "quality_score": 0.5,
+    "quality_display": "50%",
+    "is_active": true,
+    "last_fetched": "07/01/2026 13:23"
+  },
+  {
+    "id": 5,
+    "name": "All3DP",
+    "url": "https://all3dp.com",
+    "feed_url": "https://all3dp.com/feed/newsfeed",
+    "quality_score": 0.5,
+    "quality_display": "50%",
+    "is_active": true,
+    "last_fetched": "07/01/2026 13:23"
+  }
+]
