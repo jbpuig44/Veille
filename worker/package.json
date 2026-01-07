@@ -1,0 +1,17 @@
+{
+  "name": "veille-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create veille-db",
+    "db:migrate": "wrangler d1 execute veille-db --file=./schema.sql",
+    "db:migrate:local": "wrangler d1 execute veille-db --local --file=./schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240512.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^3.57.0"
+  }
+}

@@ -1,101 +1,84 @@
 /**
  * Veille - Application JavaScript
- * Gère l'interface utilisateur du site statique
+ * Interface pour l'agrégateur de news avec API Cloudflare Workers
  */
+
+// Configuration API
+const API_BASE = '/api';
 
 // État global
 const state = {
     themes: [],
     articles: [],
-    favorites: [],
+    sources: [],
     suggestions: [],
-    metadata: null,
-    currentTheme: null,
-    ratings: JSON.parse(localStorage.getItem('veille_ratings') || '{}'),
-    localFavorites: JSON.parse(localStorage.getItem('veille_favorites') || '[]'),
+    stats: null,
 };
 
-// Éléments DOM
-const elements = {
-    articlesContainer: document.getElementById('articles-container'),
-    themesContainer: document.getElementById('themes-container'),
-    favoritesContainer: document.getElementById('favorites-container'),
-    suggestionsContainer: document.getElementById('suggestions-container'),
-    statsContainer: document.getElementById('stats-container'),
-    filterTheme: document.getElementById('filter-theme'),
-    sortBy: document.getElementById('sort-by'),
-    lastUpdate: document.getElementById('last-update'),
-    modal: document.getElementById('article-modal'),
-    modalBody: document.getElementById('modal-body'),
-    toastContainer: document.getElementById('toast-container'),
-};
+// ============ API Calls ============
 
-// ============ Chargement des données ============
+async function api(endpoint, options = {}) {
+    const url = `${API_BASE}${endpoint}`;
+    const config = {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+    };
 
-async function loadData(filename) {
-    try {
-        const response = await fetch(`data/${filename}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } catch (error) {
-        console.error(`Erreur chargement ${filename}:`, error);
-        return null;
+    if (options.body && typeof options.body === 'object') {
+        config.body = JSON.stringify(options.body);
     }
+
+    const response = await fetch(url, config);
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `HTTP ${response.status}`);
+    }
+
+    return response.json();
 }
 
+// ============ Initialization ============
+
 async function initApp() {
-    showLoading(elements.articlesContainer);
+    showLoading(document.getElementById('articles-container'));
 
-    // Charger les données en parallèle
-    const [themes, recent, favorites, suggestions, metadata] = await Promise.all([
-        loadData('themes.json'),
-        loadData('recent.json'),
-        loadData('favorites.json'),
-        loadData('suggestions.json'),
-        loadData('metadata.json'),
-    ]);
+    try {
+        // Load initial data
+        const [themes, articles, stats] = await Promise.all([
+            api('/themes'),
+            api('/articles?limit=50'),
+            api('/stats'),
+        ]);
 
-    state.themes = themes || [];
-    state.articles = recent || [];
-    state.favorites = favorites || [];
-    state.suggestions = suggestions || [];
-    state.metadata = metadata;
+        state.themes = themes || [];
+        state.articles = articles || [];
+        state.stats = stats;
 
-    // Appliquer les ratings locaux
-    applyLocalRatings();
+        // Update UI
+        populateThemeFilters();
+        renderArticles();
+        updateLastUpdate();
 
-    // Mettre à jour l'interface
-    populateThemeFilter();
-    renderArticles();
-    updateLastUpdate();
+    } catch (error) {
+        console.error('Init error:', error);
+        showToast('Erreur de chargement des données', 'error');
+    }
 
-    // Configurer les événements
     setupEventListeners();
 }
 
-function applyLocalRatings() {
-    // Appliquer les ratings stockés localement
-    state.articles.forEach(article => {
-        if (state.ratings[article.id]) {
-            article.user_rating = state.ratings[article.id];
-        }
-        if (state.localFavorites.includes(article.id)) {
-            article.is_favorite = true;
-        }
-    });
-}
-
-// ============ Rendu des articles ============
+// ============ Articles ============
 
 function renderArticles(articles = null) {
-    const container = elements.articlesContainer;
+    const container = document.getElementById('articles-container');
     const data = articles || getFilteredArticles();
 
     if (!data || data.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <h3>Aucun article</h3>
-                <p>Exécutez "veille run" pour récupérer des articles.</p>
+                <p>Cliquez sur "Actualiser" pour récupérer des articles.</p>
             </div>
         `;
         return;
@@ -106,19 +89,17 @@ function renderArticles(articles = null) {
 
 function createArticleCard(article) {
     const scoreClass = getScoreClass(article.relevance_score);
-    const tags = article.tags?.slice(0, 4) || [];
-    const rating = state.ratings[article.id] || article.user_rating;
-    const isFavorite = state.localFavorites.includes(article.id) || article.is_favorite;
+    const tags = (article.tags || []).slice(0, 4);
 
     return `
         <article class="article-card" data-id="${article.id}">
             <div class="article-header">
                 <div class="article-meta">
-                    <span class="article-source">${escapeHtml(article.source_name)}</span>
-                    <span class="article-date">${article.published_display}</span>
+                    <span class="article-source">${escapeHtml(article.source_name || 'Inconnu')}</span>
+                    <span class="article-date">${formatDate(article.published_at)}</span>
                 </div>
                 ${article.relevance_score !== null ? `
-                    <span class="article-score ${scoreClass}">${article.relevance_display}</span>
+                    <span class="article-score ${scoreClass}">${Math.round((article.relevance_score || 0) * 100)}%</span>
                 ` : ''}
             </div>
 
@@ -128,7 +109,7 @@ function createArticleCard(article) {
                 </a>
             </h3>
 
-            <p class="article-summary">${escapeHtml(article.summary)}</p>
+            <p class="article-summary">${escapeHtml(article.summary || 'Non analysé')}</p>
 
             ${tags.length > 0 ? `
                 <div class="article-tags">
@@ -138,15 +119,15 @@ function createArticleCard(article) {
 
             <div class="article-actions">
                 <div class="rating-buttons">
-                    <button class="rating-btn up ${rating === 1 ? 'active' : ''}"
+                    <button class="rating-btn up ${article.user_rating === 1 ? 'active' : ''}"
                             onclick="rateArticle(${article.id}, 1)" title="Intéressant">
                         👍
                     </button>
-                    <button class="rating-btn down ${rating === -1 ? 'active' : ''}"
+                    <button class="rating-btn down ${article.user_rating === -1 ? 'active' : ''}"
                             onclick="rateArticle(${article.id}, -1)" title="Pas intéressant">
                         👎
                     </button>
-                    <button class="rating-btn favorite ${isFavorite ? 'active' : ''}"
+                    <button class="rating-btn favorite ${article.is_favorite ? 'active' : ''}"
                             onclick="toggleFavorite(${article.id})" title="Favori">
                         ⭐
                     </button>
@@ -159,259 +140,76 @@ function createArticleCard(article) {
     `;
 }
 
-function getScoreClass(score) {
-    if (score === null || score === undefined) return '';
-    if (score >= 0.7) return 'high';
-    if (score >= 0.4) return 'medium';
-    return 'low';
-}
-
 function getFilteredArticles() {
     let articles = [...state.articles];
 
-    // Filtrer par thème
-    const themeId = elements.filterTheme.value;
+    const themeId = document.getElementById('filter-theme')?.value;
     if (themeId) {
         articles = articles.filter(a => a.theme_id === parseInt(themeId));
     }
 
-    // Trier
-    const sortBy = elements.sortBy.value;
-    if (sortBy === 'relevance') {
-        articles.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
-    } else if (sortBy === 'date') {
+    const sortBy = document.getElementById('sort-by')?.value;
+    if (sortBy === 'date') {
         articles.sort((a, b) => new Date(b.published_at || 0) - new Date(a.published_at || 0));
+    } else {
+        articles.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
     }
 
     return articles;
 }
 
-// ============ Rendu des thèmes ============
+async function rateArticle(articleId, rating) {
+    try {
+        const article = state.articles.find(a => a.id === articleId);
+        const newRating = article?.user_rating === rating ? 0 : rating;
 
-async function renderThemes() {
-    const container = elements.themesContainer;
+        await api(`/articles/${articleId}/rate`, {
+            method: 'POST',
+            body: { rating: newRating },
+        });
 
-    if (!state.themes || state.themes.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>Aucun thème</h3>
-                <p>Créez un thème avec "veille theme add".</p>
-            </div>
-        `;
-        return;
+        if (article) {
+            article.user_rating = newRating;
+        }
+
+        renderArticles();
+        showToast('Note enregistrée', 'success');
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
     }
-
-    // Charger les stats par thème
-    const themesWithStats = await Promise.all(state.themes.map(async theme => {
-        const articles = await loadData(`theme_${theme.id}.json`) || [];
-        return { ...theme, articleCount: articles.length };
-    }));
-
-    container.innerHTML = themesWithStats.map(theme => `
-        <div class="theme-card" onclick="filterByTheme(${theme.id})">
-            <h3 class="theme-name">${escapeHtml(theme.name)}</h3>
-            ${theme.description ? `<p class="theme-description">${escapeHtml(theme.description)}</p>` : ''}
-            ${theme.keywords?.length > 0 ? `
-                <div class="theme-keywords">
-                    ${theme.keywords.slice(0, 5).map(kw => `<span class="tag">${escapeHtml(kw)}</span>`).join('')}
-                </div>
-            ` : ''}
-            <div class="theme-stats">
-                <span>${theme.articleCount} articles</span>
-            </div>
-        </div>
-    `).join('');
 }
 
-// ============ Rendu des favoris ============
+async function toggleFavorite(articleId) {
+    try {
+        const result = await api(`/articles/${articleId}/favorite`, { method: 'POST' });
 
-function renderFavorites() {
-    const container = elements.favoritesContainer;
+        const article = state.articles.find(a => a.id === articleId);
+        if (article) {
+            article.is_favorite = result.is_favorite ? 1 : 0;
+        }
 
-    // Combiner favoris du serveur et locaux
-    const favoriteIds = new Set(state.localFavorites);
-    const allFavorites = [
-        ...state.favorites,
-        ...state.articles.filter(a => favoriteIds.has(a.id) && !state.favorites.find(f => f.id === a.id))
-    ];
-
-    if (allFavorites.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>Aucun favori</h3>
-                <p>Cliquez sur ⭐ pour ajouter des articles en favoris.</p>
-            </div>
-        `;
-        return;
+        renderArticles();
+        showToast(result.is_favorite ? 'Ajouté aux favoris' : 'Retiré des favoris', 'success');
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
     }
-
-    container.innerHTML = allFavorites.map(article => createArticleCard(article)).join('');
-}
-
-// ============ Rendu des suggestions ============
-
-function renderSuggestions() {
-    const container = elements.suggestionsContainer;
-
-    if (!state.suggestions || state.suggestions.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <h3>Aucune suggestion</h3>
-                <p>Utilisez "veille source search [thème]" pour découvrir des sources.</p>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = state.suggestions.map(suggestion => `
-        <div class="suggestion-card" data-id="${suggestion.id}">
-            <div class="suggestion-info">
-                <h3 class="suggestion-name">${escapeHtml(suggestion.name)}</h3>
-                <a class="suggestion-url" href="${escapeHtml(suggestion.url)}" target="_blank" rel="noopener">
-                    ${escapeHtml(suggestion.url)}
-                </a>
-                ${suggestion.reason ? `<p class="suggestion-reason">${escapeHtml(suggestion.reason)}</p>` : ''}
-                <div class="suggestion-meta">
-                    <span>Thème: ${escapeHtml(suggestion.theme_name)}</span>
-                    <span>RSS: ${suggestion.feed_url ? 'Oui' : 'Non'}</span>
-                </div>
-            </div>
-            <div class="suggestion-actions">
-                <button class="btn btn-sm btn-primary" onclick="markSuggestion(${suggestion.id}, 'accept')">
-                    Accepter
-                </button>
-                <button class="btn btn-sm btn-secondary" onclick="markSuggestion(${suggestion.id}, 'reject')">
-                    Rejeter
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-// ============ Rendu des paramètres ============
-
-function renderStats() {
-    const container = elements.statsContainer;
-
-    const totalRatings = Object.keys(state.ratings).length;
-    const positiveRatings = Object.values(state.ratings).filter(r => r === 1).length;
-    const negativeRatings = Object.values(state.ratings).filter(r => r === -1).length;
-
-    container.innerHTML = `
-        <div class="stat-item">
-            <div class="stat-value">${state.themes.length}</div>
-            <div class="stat-label">Thèmes</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-value">${state.articles.length}</div>
-            <div class="stat-label">Articles récents</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-value">${state.localFavorites.length}</div>
-            <div class="stat-label">Favoris</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-value">${positiveRatings} / ${negativeRatings}</div>
-            <div class="stat-label">👍 / 👎</div>
-        </div>
-    `;
-}
-
-// ============ Actions utilisateur ============
-
-function rateArticle(articleId, rating) {
-    const currentRating = state.ratings[articleId];
-
-    // Toggle si même note
-    if (currentRating === rating) {
-        delete state.ratings[articleId];
-    } else {
-        state.ratings[articleId] = rating;
-    }
-
-    // Sauvegarder localement
-    localStorage.setItem('veille_ratings', JSON.stringify(state.ratings));
-
-    // Mettre à jour l'article en mémoire
-    const article = state.articles.find(a => a.id === articleId);
-    if (article) {
-        article.user_rating = state.ratings[articleId] || null;
-    }
-
-    // Re-rendre la carte
-    const card = document.querySelector(`.article-card[data-id="${articleId}"]`);
-    if (card) {
-        const newCard = document.createElement('div');
-        newCard.innerHTML = createArticleCard(article || { id: articleId });
-        card.replaceWith(newCard.firstElementChild);
-    }
-
-    showToast('Note enregistrée', 'success');
-}
-
-function toggleFavorite(articleId) {
-    const index = state.localFavorites.indexOf(articleId);
-
-    if (index > -1) {
-        state.localFavorites.splice(index, 1);
-    } else {
-        state.localFavorites.push(articleId);
-    }
-
-    localStorage.setItem('veille_favorites', JSON.stringify(state.localFavorites));
-
-    // Mettre à jour l'article
-    const article = state.articles.find(a => a.id === articleId);
-    if (article) {
-        article.is_favorite = state.localFavorites.includes(articleId);
-    }
-
-    // Re-rendre
-    const card = document.querySelector(`.article-card[data-id="${articleId}"]`);
-    if (card && article) {
-        const newCard = document.createElement('div');
-        newCard.innerHTML = createArticleCard(article);
-        card.replaceWith(newCard.firstElementChild);
-    }
-
-    showToast(index > -1 ? 'Retiré des favoris' : 'Ajouté aux favoris', 'success');
-}
-
-function markSuggestion(suggestionId, action) {
-    // Note: Cette action est locale seulement
-    // L'utilisateur devra utiliser le CLI pour vraiment accepter/rejeter
-    const card = document.querySelector(`.suggestion-card[data-id="${suggestionId}"]`);
-    if (card) {
-        card.style.opacity = '0.5';
-        card.style.pointerEvents = 'none';
-    }
-
-    const localDecisions = JSON.parse(localStorage.getItem('veille_suggestions') || '{}');
-    localDecisions[suggestionId] = action;
-    localStorage.setItem('veille_suggestions', JSON.stringify(localDecisions));
-
-    showToast(
-        action === 'accept'
-            ? 'Marqué pour acceptation (utilisez le CLI pour confirmer)'
-            : 'Marqué pour rejet',
-        'success'
-    );
 }
 
 function showArticleDetails(articleId) {
-    const article = state.articles.find(a => a.id === articleId)
-        || state.favorites.find(a => a.id === articleId);
-
+    const article = state.articles.find(a => a.id === articleId);
     if (!article) return;
 
-    elements.modalBody.innerHTML = `
+    const keyPoints = article.key_points || [];
+    const tags = article.tags || [];
+
+    document.getElementById('modal-body').innerHTML = `
         <div class="article-detail">
             <div class="article-meta" style="margin-bottom: 1rem;">
                 <span class="article-source">${escapeHtml(article.source_name)}</span>
-                <span class="article-date">${article.published_display}</span>
+                <span class="article-date">${formatDate(article.published_at)}</span>
                 ${article.relevance_score !== null ? `
                     <span class="article-score ${getScoreClass(article.relevance_score)}">
-                        ${article.relevance_display}
+                        ${Math.round((article.relevance_score || 0) * 100)}%
                     </span>
                 ` : ''}
             </div>
@@ -419,21 +217,21 @@ function showArticleDetails(articleId) {
             <h2 style="margin-bottom: 1rem;">${escapeHtml(article.title)}</h2>
 
             <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-                ${escapeHtml(article.summary)}
+                ${escapeHtml(article.summary || 'Non analysé')}
             </p>
 
-            ${article.key_points?.length > 0 ? `
+            ${keyPoints.length > 0 ? `
                 <div class="key-points">
                     <h4>Points clés</h4>
                     <ul>
-                        ${article.key_points.map(point => `<li>${escapeHtml(point)}</li>`).join('')}
+                        ${keyPoints.map(point => `<li>${escapeHtml(point)}</li>`).join('')}
                     </ul>
                 </div>
             ` : ''}
 
-            ${article.tags?.length > 0 ? `
+            ${tags.length > 0 ? `
                 <div class="article-tags" style="margin: 1.5rem 0;">
-                    ${article.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
+                    ${tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join('')}
                 </div>
             ` : ''}
 
@@ -444,68 +242,434 @@ function showArticleDetails(articleId) {
         </div>
     `;
 
-    elements.modal.classList.add('active');
+    document.getElementById('article-modal').classList.add('active');
+}
+
+// ============ Themes ============
+
+async function renderThemes() {
+    const container = document.getElementById('themes-container');
+
+    try {
+        const themes = await api('/themes');
+        state.themes = themes;
+
+        if (!themes || themes.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>Aucun thème</h3>
+                    <p>Créez un thème dans l'onglet Admin.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = themes.map(theme => {
+            const keywords = theme.keywords ? JSON.parse(theme.keywords) : [];
+            return `
+                <div class="theme-card" onclick="filterByTheme(${theme.id})">
+                    <h3 class="theme-name">${escapeHtml(theme.name)}</h3>
+                    ${theme.description ? `<p class="theme-description">${escapeHtml(theme.description)}</p>` : ''}
+                    ${keywords.length > 0 ? `
+                        <div class="theme-keywords">
+                            ${keywords.slice(0, 5).map(kw => `<span class="tag">${escapeHtml(kw)}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state"><p>Erreur: ${error.message}</p></div>`;
+    }
 }
 
 function filterByTheme(themeId) {
-    elements.filterTheme.value = themeId;
+    document.getElementById('filter-theme').value = themeId;
     renderArticles();
     switchPage('home');
 }
 
-// ============ Export ============
+// ============ Favorites ============
 
-function exportFeedback() {
-    const data = {
-        exported_at: new Date().toISOString(),
-        ratings: Object.entries(state.ratings).map(([id, rating]) => ({
-            article_id: parseInt(id),
-            rating: rating
-        })),
-        favorites: state.localFavorites,
-        suggestion_decisions: JSON.parse(localStorage.getItem('veille_suggestions') || '{}'),
-    };
+async function renderFavorites() {
+    const container = document.getElementById('favorites-container');
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const favorites = state.articles.filter(a => a.is_favorite);
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `veille_feedback_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
+    if (favorites.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>Aucun favori</h3>
+                <p>Cliquez sur ⭐ pour ajouter des articles en favoris.</p>
+            </div>
+        `;
+        return;
+    }
 
-    URL.revokeObjectURL(url);
-    showToast('Fichier exporté', 'success');
+    container.innerHTML = favorites.map(article => createArticleCard(article)).join('');
 }
 
-function clearLocalData() {
-    if (confirm('Êtes-vous sûr de vouloir effacer toutes les données locales ?')) {
-        localStorage.removeItem('veille_ratings');
-        localStorage.removeItem('veille_favorites');
-        localStorage.removeItem('veille_suggestions');
-        state.ratings = {};
-        state.localFavorites = [];
-        renderArticles();
-        renderFavorites();
-        renderStats();
-        showToast('Données locales effacées', 'success');
+// ============ Suggestions ============
+
+async function renderSuggestions() {
+    const container = document.getElementById('suggestions-container');
+
+    try {
+        const suggestions = await api('/suggestions');
+        state.suggestions = suggestions;
+
+        if (!suggestions || suggestions.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>Aucune suggestion</h3>
+                    <p>Utilisez la recherche IA dans l'onglet Admin pour découvrir des sources.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = suggestions.map(s => `
+            <div class="suggestion-card" data-id="${s.id}">
+                <div class="suggestion-info">
+                    <h3 class="suggestion-name">${escapeHtml(s.name)}</h3>
+                    <a class="suggestion-url" href="${escapeHtml(s.url)}" target="_blank" rel="noopener">
+                        ${escapeHtml(s.url)}
+                    </a>
+                    ${s.reason ? `<p class="suggestion-reason">${escapeHtml(s.reason)}</p>` : ''}
+                    <div class="suggestion-meta">
+                        <span>Thème: ${escapeHtml(s.theme_name)}</span>
+                        <span>RSS: ${s.feed_url ? 'Oui' : 'Non'}</span>
+                    </div>
+                </div>
+                <div class="suggestion-actions">
+                    <button class="btn btn-sm btn-primary" onclick="acceptSuggestion(${s.id})">
+                        Accepter
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="rejectSuggestion(${s.id})">
+                        Rejeter
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        container.innerHTML = `<div class="empty-state"><p>Erreur: ${error.message}</p></div>`;
     }
+}
+
+async function acceptSuggestion(id) {
+    try {
+        await api(`/suggestions/${id}/accept`, { method: 'POST' });
+        showToast('Source ajoutée', 'success');
+        renderSuggestions();
+        loadAdminSources();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function rejectSuggestion(id) {
+    try {
+        await api(`/suggestions/${id}/reject`, { method: 'POST' });
+        showToast('Suggestion rejetée', 'success');
+        renderSuggestions();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+// ============ Admin ============
+
+async function renderAdmin() {
+    await Promise.all([
+        loadAdminStats(),
+        loadAdminThemes(),
+        loadAdminSources(),
+    ]);
+}
+
+async function loadAdminStats() {
+    const container = document.getElementById('admin-stats');
+
+    try {
+        const stats = await api('/stats');
+        state.stats = stats;
+
+        container.innerHTML = `
+            <div class="stat-box">
+                <div class="value">${stats.themes}</div>
+                <div class="label">Thèmes</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">${stats.sources}</div>
+                <div class="label">Sources</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">${stats.articles}</div>
+                <div class="label">Articles</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">${stats.analyzed}</div>
+                <div class="label">Analysés</div>
+            </div>
+        `;
+
+        updateLastUpdate();
+    } catch (error) {
+        container.innerHTML = `<p>Erreur: ${error.message}</p>`;
+    }
+}
+
+async function loadAdminThemes() {
+    const container = document.getElementById('admin-themes-list');
+
+    try {
+        const themes = await api('/themes');
+        state.themes = themes;
+
+        if (themes.length === 0) {
+            container.innerHTML = '<p class="empty-state">Aucun thème</p>';
+            return;
+        }
+
+        container.innerHTML = themes.map(theme => {
+            const keywords = theme.keywords ? JSON.parse(theme.keywords) : [];
+            return `
+                <div class="admin-list-item">
+                    <div class="info">
+                        <div class="name">${escapeHtml(theme.name)}</div>
+                        <div class="meta">${keywords.slice(0, 3).join(', ')}${keywords.length > 3 ? '...' : ''}</div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-icon-sm danger" onclick="deleteTheme(${theme.id})" title="Supprimer">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Update select dropdowns
+        populateThemeFilters();
+    } catch (error) {
+        container.innerHTML = `<p>Erreur: ${error.message}</p>`;
+    }
+}
+
+async function loadAdminSources() {
+    const container = document.getElementById('admin-sources-list');
+
+    try {
+        const sources = await api('/sources');
+        state.sources = sources;
+
+        if (sources.length === 0) {
+            container.innerHTML = '<p class="empty-state">Aucune source</p>';
+            return;
+        }
+
+        container.innerHTML = sources.map(source => `
+            <div class="admin-list-item">
+                <div class="info">
+                    <div class="name">
+                        ${escapeHtml(source.name)}
+                        <span class="status-badge ${source.is_active ? 'active' : 'inactive'}">
+                            ${source.is_active ? 'Actif' : 'Inactif'}
+                        </span>
+                    </div>
+                    <div class="meta">${escapeHtml(source.theme_name)} · ${Math.round(source.quality_score * 100)}% qualité</div>
+                </div>
+                <div class="actions">
+                    <button class="btn-icon-sm ${source.is_active ? '' : 'success'}"
+                            onclick="toggleSource(${source.id})"
+                            title="${source.is_active ? 'Désactiver' : 'Activer'}">
+                        ${source.is_active ? '⏸️' : '▶️'}
+                    </button>
+                    <button class="btn-icon-sm danger" onclick="deleteSource(${source.id})" title="Supprimer">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = `<p>Erreur: ${error.message}</p>`;
+    }
+}
+
+async function addTheme(event) {
+    event.preventDefault();
+
+    const name = document.getElementById('input-theme-name').value.trim();
+    const keywordsStr = document.getElementById('input-theme-keywords').value.trim();
+    const keywords = keywordsStr ? keywordsStr.split(',').map(k => k.trim()).filter(k => k) : [];
+
+    try {
+        await api('/themes', {
+            method: 'POST',
+            body: { name, keywords },
+        });
+
+        document.getElementById('form-add-theme').reset();
+        showToast('Thème créé', 'success');
+        loadAdminThemes();
+        loadAdminStats();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function deleteTheme(id) {
+    if (!confirm('Supprimer ce thème et toutes ses sources ?')) return;
+
+    try {
+        await api(`/themes/${id}`, { method: 'DELETE' });
+        showToast('Thème supprimé', 'success');
+        loadAdminThemes();
+        loadAdminSources();
+        loadAdminStats();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function addSource(event) {
+    event.preventDefault();
+
+    const theme_id = parseInt(document.getElementById('input-source-theme').value);
+    const name = document.getElementById('input-source-name').value.trim();
+    const url = document.getElementById('input-source-url').value.trim();
+
+    try {
+        await api('/sources', {
+            method: 'POST',
+            body: { theme_id, name, url },
+        });
+
+        document.getElementById('form-add-source').reset();
+        showToast('Source ajoutée', 'success');
+        loadAdminSources();
+        loadAdminStats();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function toggleSource(id) {
+    try {
+        await api(`/sources/${id}/toggle`, { method: 'POST' });
+        loadAdminSources();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function deleteSource(id) {
+    if (!confirm('Supprimer cette source ?')) return;
+
+    try {
+        await api(`/sources/${id}`, { method: 'DELETE' });
+        showToast('Source supprimée', 'success');
+        loadAdminSources();
+        loadAdminStats();
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function searchSources(event) {
+    event.preventDefault();
+
+    const theme_id = parseInt(document.getElementById('input-search-theme').value);
+    const statusEl = document.getElementById('action-status');
+
+    setActionStatus('Recherche de sources en cours...', 'loading');
+
+    try {
+        const result = await api('/search-sources', {
+            method: 'POST',
+            body: { theme_id, count: 5 },
+        });
+
+        setActionStatus(`${result.suggestions_count} sources trouvées !`, 'success');
+        showToast(`${result.suggestions_count} sources suggérées`, 'success');
+        renderSuggestions();
+    } catch (error) {
+        setActionStatus('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function fetchAllArticles() {
+    setActionStatus('Récupération des articles...', 'loading');
+
+    try {
+        const result = await api('/fetch', { method: 'POST' });
+        setActionStatus(`${result.articles_added} nouveaux articles récupérés`, 'success');
+
+        // Reload articles
+        const articles = await api('/articles?limit=50');
+        state.articles = articles;
+        renderArticles();
+        loadAdminStats();
+    } catch (error) {
+        setActionStatus('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function analyzeAllArticles() {
+    setActionStatus('Analyse IA en cours (peut prendre du temps)...', 'loading');
+
+    try {
+        const result = await api('/analyze', { method: 'POST' });
+        setActionStatus(`${result.analyzed_count} articles analysés`, 'success');
+
+        // Reload articles
+        const articles = await api('/articles?limit=50');
+        state.articles = articles;
+        renderArticles();
+        loadAdminStats();
+    } catch (error) {
+        setActionStatus('Erreur: ' + error.message, 'error');
+    }
+}
+
+async function refreshArticles() {
+    showLoading(document.getElementById('articles-container'));
+
+    try {
+        // Fetch + analyze
+        await api('/fetch', { method: 'POST' });
+        await api('/analyze', { method: 'POST' });
+
+        // Reload
+        const articles = await api('/articles?limit=50');
+        state.articles = articles;
+        renderArticles();
+
+        showToast('Articles mis à jour', 'success');
+    } catch (error) {
+        showToast('Erreur: ' + error.message, 'error');
+        renderArticles();
+    }
+}
+
+function setActionStatus(message, type) {
+    const el = document.getElementById('action-status');
+    el.textContent = message;
+    el.className = `action-status show ${type}`;
 }
 
 // ============ Navigation ============
 
 function switchPage(pageName) {
-    // Mettre à jour les liens
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.toggle('active', link.dataset.page === pageName);
     });
 
-    // Afficher la page
     document.querySelectorAll('.page').forEach(page => {
         page.classList.toggle('active', page.id === `page-${pageName}`);
     });
 
-    // Charger le contenu si nécessaire
     switch (pageName) {
         case 'themes':
             renderThemes();
@@ -516,19 +680,38 @@ function switchPage(pageName) {
         case 'discover':
             renderSuggestions();
             break;
-        case 'settings':
-            renderStats();
+        case 'admin':
+            renderAdmin();
             break;
     }
 }
 
-// ============ Utilitaires ============
+// ============ Utilities ============
 
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return 'Date inconnue';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function getScoreClass(score) {
+    if (score === null || score === undefined) return '';
+    if (score >= 0.7) return 'high';
+    if (score >= 0.4) return 'medium';
+    return 'low';
 }
 
 function showLoading(container) {
@@ -540,11 +723,11 @@ function showLoading(container) {
 }
 
 function showToast(message, type = 'success') {
+    const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
-
-    elements.toastContainer.appendChild(toast);
+    container.appendChild(toast);
 
     setTimeout(() => {
         toast.style.opacity = '0';
@@ -552,20 +735,43 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-function populateThemeFilter() {
-    elements.filterTheme.innerHTML = '<option value="">Tous les thèmes</option>';
-    state.themes.forEach(theme => {
-        const option = document.createElement('option');
-        option.value = theme.id;
-        option.textContent = theme.name;
-        elements.filterTheme.appendChild(option);
+function populateThemeFilters() {
+    const selects = [
+        document.getElementById('filter-theme'),
+        document.getElementById('input-source-theme'),
+        document.getElementById('input-search-theme'),
+    ];
+
+    selects.forEach(select => {
+        if (!select) return;
+        const currentValue = select.value;
+
+        // Keep first option
+        const firstOption = select.options[0];
+        select.innerHTML = '';
+        select.appendChild(firstOption);
+
+        // Add themes
+        state.themes.forEach(theme => {
+            const option = document.createElement('option');
+            option.value = theme.id;
+            option.textContent = theme.name;
+            select.appendChild(option);
+        });
+
+        // Restore value if exists
+        if (currentValue) {
+            select.value = currentValue;
+        }
     });
 }
 
 function updateLastUpdate() {
-    if (state.metadata?.generated_at) {
-        const date = new Date(state.metadata.generated_at);
-        elements.lastUpdate.textContent = date.toLocaleString('fr-FR');
+    const el = document.getElementById('last-update');
+    if (state.stats?.generated_at) {
+        el.textContent = formatDate(state.stats.generated_at);
+    } else {
+        el.textContent = formatDate(new Date().toISOString());
     }
 }
 
@@ -580,32 +786,40 @@ function setupEventListeners() {
         });
     });
 
-    // Filtres
-    elements.filterTheme.addEventListener('change', () => renderArticles());
-    elements.sortBy.addEventListener('change', () => renderArticles());
+    // Filters
+    document.getElementById('filter-theme')?.addEventListener('change', () => renderArticles());
+    document.getElementById('sort-by')?.addEventListener('change', () => renderArticles());
+
+    // Refresh button
+    document.getElementById('btn-refresh')?.addEventListener('click', refreshArticles);
 
     // Modal
-    elements.modal.querySelector('.modal-close').addEventListener('click', () => {
-        elements.modal.classList.remove('active');
+    document.querySelector('.modal-close')?.addEventListener('click', () => {
+        document.getElementById('article-modal').classList.remove('active');
     });
-    elements.modal.addEventListener('click', (e) => {
-        if (e.target === elements.modal) {
-            elements.modal.classList.remove('active');
+    document.getElementById('article-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'article-modal') {
+            document.getElementById('article-modal').classList.remove('active');
         }
     });
 
-    // Export/Clear
-    document.getElementById('btn-export').addEventListener('click', exportFeedback);
-    document.getElementById('btn-clear-local').addEventListener('click', clearLocalData);
+    // Admin forms
+    document.getElementById('form-add-theme')?.addEventListener('submit', addTheme);
+    document.getElementById('form-add-source')?.addEventListener('submit', addSource);
+    document.getElementById('form-search-sources')?.addEventListener('submit', searchSources);
+
+    // Admin actions
+    document.getElementById('btn-fetch-all')?.addEventListener('click', fetchAllArticles);
+    document.getElementById('btn-analyze-all')?.addEventListener('click', analyzeAllArticles);
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            elements.modal.classList.remove('active');
+            document.getElementById('article-modal').classList.remove('active');
         }
     });
 }
 
-// ============ Initialisation ============
+// ============ Start ============
 
 document.addEventListener('DOMContentLoaded', initApp);

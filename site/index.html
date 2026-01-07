@@ -17,7 +17,7 @@
             <a href="#" class="nav-link" data-page="themes">Thèmes</a>
             <a href="#" class="nav-link" data-page="favorites">Favoris</a>
             <a href="#" class="nav-link" data-page="discover">Découverte</a>
-            <a href="#" class="nav-link" data-page="settings">Paramètres</a>
+            <a href="#" class="nav-link" data-page="admin">Admin</a>
         </div>
     </nav>
 
@@ -27,6 +27,9 @@
             <header class="page-header">
                 <h2>Articles récents</h2>
                 <div class="header-actions">
+                    <button id="btn-refresh" class="btn btn-primary">
+                        <span class="btn-icon-text">Actualiser</span>
+                    </button>
                     <select id="filter-theme" class="select-theme">
                         <option value="">Tous les thèmes</option>
                     </select>
@@ -72,26 +75,71 @@
             </div>
         </section>
 
-        <!-- Page Paramètres -->
-        <section id="page-settings" class="page">
+        <!-- Page Admin -->
+        <section id="page-admin" class="page">
             <header class="page-header">
-                <h2>Paramètres</h2>
+                <h2>Administration</h2>
             </header>
-            <div class="settings-content">
-                <div class="settings-section">
-                    <h3>Export des préférences</h3>
-                    <p>Exportez vos notes et favoris pour les synchroniser avec l'outil CLI.</p>
-                    <button id="btn-export" class="btn btn-primary">Exporter (JSON)</button>
+
+            <div class="admin-grid">
+                <!-- Actions rapides -->
+                <div class="admin-card">
+                    <h3>Actions</h3>
+                    <div class="admin-actions">
+                        <button id="btn-fetch-all" class="btn btn-primary btn-block">
+                            Récupérer les articles
+                        </button>
+                        <button id="btn-analyze-all" class="btn btn-secondary btn-block">
+                            Analyser avec IA
+                        </button>
+                        <div id="action-status" class="action-status"></div>
+                    </div>
                 </div>
-                <div class="settings-section">
+
+                <!-- Statistiques -->
+                <div class="admin-card">
                     <h3>Statistiques</h3>
-                    <div id="stats-container">
+                    <div id="admin-stats" class="stats-grid">
                         <!-- Stats chargées dynamiquement -->
                     </div>
                 </div>
-                <div class="settings-section">
-                    <h3>Données locales</h3>
-                    <button id="btn-clear-local" class="btn btn-danger">Effacer les données locales</button>
+
+                <!-- Gestion des thèmes -->
+                <div class="admin-card admin-card-wide">
+                    <h3>Thèmes</h3>
+                    <form id="form-add-theme" class="inline-form">
+                        <input type="text" id="input-theme-name" placeholder="Nom du thème" required>
+                        <input type="text" id="input-theme-keywords" placeholder="Mots-clés (virgules)">
+                        <button type="submit" class="btn btn-primary">Ajouter</button>
+                    </form>
+                    <div id="admin-themes-list" class="admin-list">
+                        <!-- Liste des thèmes -->
+                    </div>
+                </div>
+
+                <!-- Gestion des sources -->
+                <div class="admin-card admin-card-wide">
+                    <h3>Sources</h3>
+                    <form id="form-add-source" class="inline-form">
+                        <select id="input-source-theme" required>
+                            <option value="">Sélectionner un thème</option>
+                        </select>
+                        <input type="text" id="input-source-name" placeholder="Nom de la source" required>
+                        <input type="url" id="input-source-url" placeholder="URL du site ou flux RSS" required>
+                        <button type="submit" class="btn btn-primary">Ajouter</button>
+                    </form>
+                    <div class="source-search-section">
+                        <h4>Recherche IA de sources</h4>
+                        <form id="form-search-sources" class="inline-form">
+                            <select id="input-search-theme" required>
+                                <option value="">Sélectionner un thème</option>
+                            </select>
+                            <button type="submit" class="btn btn-secondary">Chercher des sources</button>
+                        </form>
+                    </div>
+                    <div id="admin-sources-list" class="admin-list">
+                        <!-- Liste des sources -->
+                    </div>
                 </div>
             </div>
         </section>
