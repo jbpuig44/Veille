@@ -7,6 +7,7 @@ export interface Env {
   DB: D1Database;
   ANTHROPIC_API_KEY: string;
   ENVIRONMENT: string;
+  ASSETS: Fetcher;
 }
 
 // Types
@@ -170,8 +171,8 @@ export default {
       }
     }
 
-    // Serve static assets (handled by Cloudflare)
-    return new Response('Not found', { status: 404 });
+    // Serve static assets via ASSETS binding
+    return env.ASSETS.fetch(request);
   },
 };
 

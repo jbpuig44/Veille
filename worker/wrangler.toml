@@ -1,10 +1,11 @@
-name = "veille-api"
+name = "veille"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
-# Servir les assets statiques
+# Servir les assets statiques avec routing vers le Worker
 [assets]
 directory = "../site"
+binding = "ASSETS"
 
 # Base de données D1
 [[d1_databases]]
